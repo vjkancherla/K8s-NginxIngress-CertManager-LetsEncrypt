@@ -1,0 +1,90 @@
+
+================================
+GOAL: AUTOMATICALLY GENERATE A SELF-SIGNED CERTIFICATE AND ASSIGN IT NGINX INGRESS. 
+      THUS ENABLING HTTPS/TLS COMMS FOR OUR SERVICES SITTING BEHING THE INGRESS
+================================
+
+
+=======================
+INSTALL NGINX INGRESS
+=======================
+>> helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+
+>> helm install quickstart ingress-nginx/ingress-nginx
+
+
+=====================
+INSTALL CERT-MANAGER
+=====================
+>> helm repo add jetstack https://charts.jetstack.io
+
+>> helm install \                                                                                                
+cert-manager jetstack/cert-manager \
+--namespace cert-manager \
+--create-namespace \
+--version v1.13.1 \
+--set installCRDs=true \
+--set prometheus.enabled=false \
+--set webhook.timeoutSeconds=4
+
+
+========================================
+DEPLOY A TEST APPLICATION AND SERVICE
+=========================================
+>> k create -f sample-app-n-svc.yaml
+
+
+=========================================================
+CREATE AN NGINX INGRESS RESOURCE TO EXPOSE OUR SERVICE
+=========================================================
+[1] Edit ingress.yaml and enusre that the following annotation is COMMENTED OUT:
+    - "cert-manager.io/issuer: "selfsigned"
+
+[2] Create the ingress resource
+    - >> k create -f ingress.yaml
+
+[3] Test access to our service/application via the ingress
+>> k port-forward svc/quickstart-ingress-nginx-controller 8080:80
+
+>> Access http://kuard.127.0.0.1.nip.io:8080 from the browser
+
+
+======================================================
+CREATE AN CERT-MANAGER CERTIFICATE "ISSUER" RESOURCE
+======================================================
+>> k create -f issuer-selfsigned.yaml
+
+This create an Issuer resource with the name "selfsigned".
+
+The cert-manager controller will now be watching for NEW Ingress resources with the annotation - "cert-manager.io/issuer: "selfsigned".
+When it finds/discovers one, it will :
+    - automatically create a self-signed ssl cert matching the "host" defined the Ingress spec
+
+    - automatically create a K8s TLS secret with the name = "secretname property in the Ingress yaml"
+
+    - store the TLS certs in the K8s Secret for the Ingress resource to use
+
+
+==========================================================
+UPDATE INGRESS RESOURCE WITH THE CERT-MANGER ANNOTATION
+==========================================================
+- Edit ingress.yaml and ensure that the following annotation is enabled:
+    - "cert-manager.io/issuer: "selfsigned"
+
+- >> k apply -f ingress.yaml
+
+>> k get secrets 
+There should be a new secret called "kuard-tls". Examine its contents.
+
+
+===========================================
+TEST ACCESS TO OUR APPLICATION OVER HTTPS
+===========================================
+
+>> k port-forward svc/quickstart-ingress-nginx-controller 8443:443
+
+>> Access https://kuard.127.0.0.1.nip.io:8443 from the browser
+
+NOTE: the self-signed cert will not be accepted by browsers, so you will need to "accept" privacy warnings.
+
+Examine the certificate in the browser and verify that the cert's domain is set to the "host" in the ingress.yaml

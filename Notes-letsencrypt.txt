@@ -1,0 +1,88 @@
+================================
+GOAL: AUTOMATICALLY GENERATE A CERTIFICATE SIGNED BY LETSENCRYPT AND ASSIGN IT NGINX INGRESS. 
+      THUS ENABLING HTTPS/TLS COMMS, FOR OUR SERVICES SITTING BEHING THE INGRESS, OVER INTERNET
+================================
+
+NOTE: THIS PROCESS WILL ONLY WORK IF THE HOSTNAME OF THE INGRESS IS AVAILABLE OVER THE INTERNET.
+
+
+SOURCE: https://cert-manager.io/docs/tutorials/acme/nginx-ingress/
+
+FOLLOW THE STEPS IN Notes-selfsigned-cert.txt TO:
+
+[1] Install Nginx Ingress Controller 
+
+[2] Install Cert-Manager
+
+[3] Deploy a test application and service 
+
+[4] Create an ingress resource, using ingress-letsencrypt.yaml, with "cert-manager annotations disabled"
+
+[5] Test access to application in the browser
+
+
+=======================================================================
+CREATE CERT-MANAGER CERTIFICATE "ISSUER" AND "CLUSTERISSUER" RESOURCES
+=======================================================================
+
+>> k create -f clusterissuer-lets-encrypt-staging.yaml
+    - This creates an ClusterIssuer resource with the name "letsencrypt-staging-clusterissuer"
+
+>> k create -f issuer-lets-encrypt-staging.yaml
+    - This creates an Issuer resource with the name "letsencrypt-staging-issuer"
+
+The cert-manager controller will now be watching for NEW Ingress resources with the annotation - 
+    "cert-manager.io/issuer: "letsencrypt-staging-issuer"
+
+    or
+
+    "cert-manager.io/issuer: "letsencrypt-staging-clusterissuer"
+
+When it finds/discovers one, it will :
+
+    - automatically create:
+        - a "certificates.cert-manager.io" resource to create the certificate
+        - a "orders.acme.cert-manager.io" resource to order a certificate from LetsEncrypt
+        - a "challenges.acme.cert-manager.io" resource to fulfill the "Order"
+            - THIS IS CRUCIAL. You should keep an eye out for new events on the challenge resource, as a 'success' event should be printed after a minute or so
+
+        ====
+        If you see errors such as belowin the challenge, it means that the Ingress is not accessible from Internet
+        https://cert-manager.io/docs/troubleshooting/acme/#
+
+        $ kubectl describe challenge
+        [...]
+        Status:
+        Presented:   true
+        Processing:  true
+        Reason:      Waiting for http-01 challenge propagation: failed to perform self check GET request 'http://example.com/.well-known/acme-challenge/_fgdLz0i3TFiZW4LBjuhjgd5nTOkaMBhxYmTY': Get "http://example.com/.well-known/acme-challenge/_fgdLz0i3TFiZW4LBjuhjgd5nTOkaMBhxYmTY: remote error: tls: handshake failure
+        State:       pending
+        [...]
+        ====
+
+    - automatically create a K8s TLS secret with the name = "secretname property in the Ingress yaml"
+
+    - store the TLS certs in the K8s Secret for the Ingress resource to use
+
+
+==========================================================
+UPDATE INGRESS RESOURCE WITH THE CERT-MANGER ANNOTATION
+==========================================================
+- Edit ingress-letsencrypt.yaml and ensure that the following annotation is enabled:
+    - "cert-manager.io/issuer: "letsencrypt-staging-clusterissuer"
+
+- >> k apply -f ingress-letsencrypt.yaml
+
+>> k get secrets 
+There should be a new secret called "kuard-tls". Examine its contents.
+
+
+===========================================
+TEST ACCESS TO OUR APPLICATION OVER HTTPS
+===========================================
+
+>> k port-forward svc/quickstart-ingress-nginx-controller 8443:443
+
+>> Access https://kuard.my-example.io:8443 from the browser
+
+Examine the certificate in the browser and verify that the cert's domain is set to the "host" in the ingress-letsencrypt.yaml
